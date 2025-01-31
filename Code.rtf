@@ -1,0 +1,97 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2820
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww33700\viewh20520\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 # Set source and destination directories (update with your actual paths)\
+source_dir <- "path/to/source/directory"  # Directory containing original Rdata files\
+output_dir <- "path/to/output/directory"  # Directory where noisy dataset will be saved\
+\
+# List all .Rdata files in the source directory\
+Rfiles <- dir(source_dir, full.names = TRUE, pattern = "\\\\.Rdata$")\
+Rfiles_name <- dir(source_dir, pattern = "\\\\.Rdata$")\
+\
+# Process each Rdata file\
+for (ii in 1:length(Rfiles)) \{\
+  \
+  # Load the Rdata file\
+  Rfile_name <- load(Rfiles[ii])\
+  print(paste("Processing:", Rfiles[ii]))\
+  \
+  # Assuming the loaded data contains a 3D hyperpolarized gas MRI image stored in variable 'HPG'\
+  original_img <- HPG  \
+\
+  # Perform Fourier Transform (FT) and shift quadrants to center k-space\
+  original_FT <- array(dim = c(dim(original_img)[2], dim(original_img)[1], dim(original_img)[3]))\
+\
+  for (i in 1:dim(original_img)[3]) \{\
+    original_FT[,,i] <- quadShift(fft(t(original_img[,,i])))  \
+  \}\
+\
+  # Initialize array for noisy Fourier Transformed images\
+  noisy_FT <- array(dim = c(dim(original_img)[2], dim(original_img)[1], dim(original_img)[3]))\
+\
+  for (i in 1:dim(original_img)[3]) \{\
+    \
+    # Randomly choose between Gaussian noise (1) or spike noise (2)\
+    noise_type <- floor(runif(1, 1, 3))\
+\
+    if (noise_type == 1) \{  \
+      # Adding Random Gaussian Noise\
+      \
+      SD <- 1000  # Standard deviation of noise\
+      real_noise <- matrix(rnorm(dim(original_FT)[1] * dim(original_FT)[2], 0, SD), \
+                           nrow = dim(original_FT)[2], ncol = dim(original_FT)[1])\
+      img_noise <- matrix(rnorm(dim(original_FT)[1] * dim(original_FT)[2], 0, SD), \
+                          nrow = dim(original_FT)[2], ncol = dim(original_FT)[1])\
+      \
+      complex_noise <- matrix(complex(real = real_noise, imaginary = img_noise), \
+                              nrow = dim(original_FT)[1], ncol = dim(original_FT)[2])\
+      \
+      # Add Gaussian noise to the Fourier Transformed image\
+      noisy_FT[,,i] <- original_FT[,,i] + complex_noise  \
+\
+    \} else if (noise_type == 2) \{  \
+      # Adding Spike Noise\
+      \
+      spike_no <- floor(runif(1, 1, 50))  # Number of spikes (random between 1 and 50)\
+      RandomNum <- complex(real = stats::runif(spike_no), imaginary = stats::runif(spike_no))\
+      \
+      # Initialize with original Fourier Transformed image\
+      noisy_FT[,,i] <- original_FT[,,i]  \
+\
+      for (k in 1:length(RandomNum)) \{\
+        \
+        # Randomly select a location in k-space\
+        index1 <- floor(runif(1, 1, dim(original_FT)[1]))\
+        index2 <- floor(runif(1, 1, dim(original_FT)[2]))\
+\
+        # Assign a random amplitude within the range of the original FT magnitude\
+        amplitude <- floor(runif(1, 1, max(Mod(original_FT[,,i]))))\
+        RandomNum[k] <- RandomNum[k] + amplitude\
+\
+        # Insert spike noise at the selected location\
+        noisy_FT[index1, index2, i] <- RandomNum[k]\
+      \}\
+    \}\
+  \}\
+\
+  # Initialize array for inverse transformed noisy image\
+  noisy_img <- original_img * 0\
+\
+  # Perform Inverse Fourier Transform (IFT) to get back to image space\
+  for (i in 1:dim(original_img)[3]) \{\
+    noisy_img[,,i] <- fft(t(noisy_FT[,,i]), inverse = TRUE)  \
+  \}\
+\
+  # Separate real and imaginary components of noisy Fourier Transformed image\
+  noisy_FT_real <- Re(noisy_FT)\
+  noisy_FT_img <- Im(noisy_FT)\
+\
+  # Save the noisy dataset and original image to the output directory\
+  save(noisy_FT_real, noisy_FT_img, noisy_img, original_img, original_FT, \
+       file = paste0(output_dir, "/", Rfiles_name[ii], ".Rdata"))\
+\}\
+}
